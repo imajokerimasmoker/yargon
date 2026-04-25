@@ -1,0 +1,23 @@
+<div style="text-align:center">
+  <h1>WebCam Streaming over WebSocket</h1>
+
+  <div style="margin-bottom: 20px;">
+    <h3>Local Stream</h3>
+    <video #localVideo autoplay muted playsinline style="width: 320px; background: black; border: 2px solid #333;"></video>
+    <br>
+    <button (click)="startStreaming()" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">Start My Stream</button>
+  </div>
+
+  <hr>
+
+  <div>
+    <h3>Remote Streams</h3>
+    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 20px;">
+      <div *ngIf="remoteStreamList.length === 0">No other streams available</div>
+      <div *ngFor="let stream of remoteStreamList">
+        <p>Client: {{ stream.id.substring(0,8) }}...</p>
+        <video [src]="stream.videoUrl" autoplay playsinline style="width: 320px; background: black; border: 2px solid #007bff;"></video>
+      </div>
+    </div>
+  </div>
+</div>
