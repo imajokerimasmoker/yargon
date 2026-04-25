@@ -76,7 +76,17 @@ export class App implements AfterViewInit, OnDestroy {
         });
         this.processQueue(remote!);
       });
+
       this.cdr.detectChanges();
+
+      // Attempt to play once data starts coming in
+      setTimeout(() => {
+        const videoElement = document.querySelector(`video[src="${remote!.videoUrl}"]`) as HTMLVideoElement;
+        if (videoElement) {
+          videoElement.muted = true; // Ensure it's muted
+          videoElement.play().catch(err => console.log("Autoplay failed, waiting for user interaction:", err));
+        }
+      }, 100);
     }
 
     this.pushToBuffer(remote, msg.data);
