@@ -1,6 +1,7 @@
 import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { WebsocketService, StreamMessage } from './websocket';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
 interface RemoteStream {
   id: string;
@@ -8,6 +9,7 @@ interface RemoteStream {
   sourceBuffer: SourceBuffer | null;
   queue: Blob[];
   videoUrl: string;
+  safeVideoUrl: SafeUrl;
 }
 
 @Component({
@@ -23,7 +25,11 @@ export class App implements AfterViewInit, OnDestroy {
   private mediaRecorder: MediaRecorder | null = null;
   public remoteStreams: Map<string, RemoteStream> = new Map();
 
-  constructor(private wsService: WebsocketService, private cdr: ChangeDetectorRef) {}
+  constructor(
+    private wsService: WebsocketService,
+    private cdr: ChangeDetectorRef,
+    private sanitizer: DomSanitizer
+  ) {}
 
   ngAfterViewInit() {
     this.wsService.connect('ws://localhost:8080/ws').subscribe(msg => {
@@ -55,16 +61,22 @@ export class App implements AfterViewInit, OnDestroy {
     return Array.from(this.remoteStreams.values());
   }
 
+  trackByFn(index: number, item: RemoteStream) {
+    return item.id;
+  }
+
   handleRemoteStream(msg: StreamMessage) {
     let remote = this.remoteStreams.get(msg.senderId);
     if (!remote) {
       const mediaSource = new MediaSource();
+      const rawUrl = URL.createObjectURL(mediaSource);
       remote = {
         id: msg.senderId,
         mediaSource: mediaSource,
         sourceBuffer: null,
         queue: [],
-        videoUrl: URL.createObjectURL(mediaSource)
+        videoUrl: rawUrl,
+        safeVideoUrl: this.sanitizer.bypassSecurityTrustUrl(rawUrl)
       };
       this.remoteStreams.set(msg.senderId, remote);
 
@@ -81,28 +93,43 @@ export class App implements AfterViewInit, OnDestroy {
 
       // Attempt to play once data starts coming in
       setTimeout(() => {
-        const videoElement = document.querySelector(`video[src="${remote!.videoUrl}"]`) as HTMLVideoElement;
+        const videoElement = document.querySelector(`video[data-stream-id="${remote!.id}"]`) as HTMLVideoElement;
         if (videoElement) {
           videoElement.muted = true; // Ensure it's muted
           videoElement.play().catch(err => console.log("Autoplay failed, waiting for user interaction:", err));
+
+          // Set up an interval to ensure it starts playing once metadata is loaded
+          const playInterval = setInterval(() => {
+            if (videoElement.paused && videoElement.readyState >= 1) {
+              videoElement.play().catch(() => {});
+            }
+
+            // If we have buffered data ahead and we're not playing, jump to it
+            if (videoElement.buffered.length > 0) {
+              if (videoElement.currentTime < videoElement.buffered.start(0) ||
+                  (videoElement.buffered.length > 1 && videoElement.currentTime < videoElement.buffered.start(videoElement.buffered.length - 1))) {
+                 videoElement.currentTime = videoElement.buffered.start(videoElement.buffered.length - 1);
+              }
+            }
+
+            if (!videoElement.paused && videoElement.currentTime > 0) {
+              // Once we're moving, we can stop the interval if we're sure it's stable
+              // But maybe keep it for a bit or rely on the 10s fallback
+            }
+          }, 500);
+
+          // Fallback to clear interval
+          setTimeout(() => clearInterval(playInterval), 10000);
         }
-      }, 100);
+      }, 500);
     }
 
     this.pushToBuffer(remote, msg.data);
   }
 
   async pushToBuffer(remote: RemoteStream, blob: Blob) {
-    if (remote.sourceBuffer && !remote.sourceBuffer.updating && remote.mediaSource.readyState === 'open') {
-      try {
-        const arrayBuffer = await blob.arrayBuffer();
-        remote.sourceBuffer.appendBuffer(arrayBuffer);
-      } catch (e) {
-        console.error('Error appending buffer', e);
-      }
-    } else {
-      remote.queue.push(blob);
-    }
+    remote.queue.push(blob);
+    this.processQueue(remote);
   }
 
   async processQueue(remote: RemoteStream) {
