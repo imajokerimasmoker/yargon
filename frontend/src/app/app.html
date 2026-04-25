@@ -14,9 +14,9 @@
     <h3>Remote Streams</h3>
     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 20px;">
       <div *ngIf="remoteStreamList.length === 0">No other streams available</div>
-      <div *ngFor="let stream of remoteStreamList">
+      <div *ngFor="let stream of remoteStreamList; trackBy: trackByFn">
         <p>Client: {{ stream.id.substring(0,8) }}...</p>
-        <video [src]="stream.videoUrl" autoplay muted playsinline controls style="width: 320px; background: black; border: 2px solid #007bff;"></video>
+        <video [src]="stream.safeVideoUrl" [attr.data-stream-id]="stream.id" autoplay muted playsinline controls style="width: 320px; background: black; border: 2px solid #007bff;"></video>
       </div>
     </div>
   </div>
