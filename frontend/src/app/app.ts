@@ -67,11 +67,11 @@ export class App implements AfterViewInit, OnDestroy {
   }
 
   handleRemoteStream(msg: StreamMessage) {
-    let remote = this.remoteStreams.get(msg.senderId);
-    if (!remote) {
+    const existingRemote = this.remoteStreams.get(msg.senderId);
+    if (!existingRemote) {
       const mediaSource = new MediaSource();
       const rawUrl = URL.createObjectURL(mediaSource);
-      remote = {
+      const newRemote: RemoteStream = {
         id: msg.senderId,
         mediaSource: mediaSource,
         sourceBuffer: null,
@@ -79,22 +79,22 @@ export class App implements AfterViewInit, OnDestroy {
         videoUrl: rawUrl,
         safeVideoUrl: this.sanitizer.bypassSecurityTrustUrl(rawUrl)
       };
-      this.remoteStreams.set(msg.senderId, remote);
+      this.remoteStreams.set(msg.senderId, newRemote);
 
       mediaSource.addEventListener('sourceopen', () => {
         const sb = mediaSource.addSourceBuffer('video/webm; codecs=vp8,opus');
-        remote!.sourceBuffer = sb;
+        newRemote.sourceBuffer = sb;
         sb.addEventListener('updateend', () => {
-          this.processQueue(remote!);
+          this.processQueue(newRemote);
         });
-        this.processQueue(remote!);
+        this.processQueue(newRemote);
       });
 
       this.cdr.detectChanges();
 
       // Attempt to play once data starts coming in
       setTimeout(() => {
-        const videoElement = document.querySelector(`video[data-stream-id="${remote!.id}"]`) as HTMLVideoElement;
+        const videoElement = document.querySelector(`video[data-stream-id="${newRemote.id}"]`) as HTMLVideoElement;
         if (videoElement) {
           videoElement.muted = true; // Ensure it's muted
 
@@ -110,14 +110,14 @@ export class App implements AfterViewInit, OnDestroy {
 
               // If we are significantly behind the last buffered range or not in any range
               if (videoElement.currentTime < bufferedStart || videoElement.currentTime > bufferedEnd + 0.5) {
-                console.log(`[${remote!.id}] Syncing: currentTime=${videoElement.currentTime.toFixed(3)}, buffered=[${bufferedStart.toFixed(3)}, ${bufferedEnd.toFixed(3)}]. Jumping to ${bufferedStart.toFixed(3)}`);
+                console.log(`[${newRemote.id}] Syncing: currentTime=${videoElement.currentTime.toFixed(3)}, buffered=[${bufferedStart.toFixed(3)}, ${bufferedEnd.toFixed(3)}]. Jumping to ${bufferedStart.toFixed(3)}`);
                 videoElement.currentTime = bufferedStart;
               }
             }
           };
 
           videoElement.addEventListener('waiting', () => {
-            console.log(`[${remote!.id}] Video waiting... readyState=${videoElement.readyState}, currentTime=${videoElement.currentTime.toFixed(3)}`);
+            console.log(`[${newRemote.id}] Video waiting... readyState=${videoElement.readyState}, currentTime=${videoElement.currentTime.toFixed(3)}`);
             syncStream();
           });
 
@@ -127,15 +127,14 @@ export class App implements AfterViewInit, OnDestroy {
 
           // Persistent interval for synchronization
           const playInterval = setInterval(syncStream, 1000);
-
-          if (remote) {
-            remote.syncInterval = playInterval;
-          }
+          newRemote.syncInterval = playInterval;
         }
       }, 500);
-    }
 
-    this.pushToBuffer(remote, msg.data);
+      this.pushToBuffer(newRemote, msg.data);
+    } else {
+      this.pushToBuffer(existingRemote, msg.data);
+    }
   }
 
   async pushToBuffer(remote: RemoteStream, blob: Blob) {
