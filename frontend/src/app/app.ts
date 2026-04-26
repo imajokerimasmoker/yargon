@@ -10,6 +10,7 @@ interface RemoteStream {
   queue: Blob[];
   videoUrl: string;
   safeVideoUrl: SafeUrl;
+  syncInterval?: any;
 }
 
 @Component({
@@ -96,30 +97,38 @@ export class App implements AfterViewInit, OnDestroy {
         const videoElement = document.querySelector(`video[data-stream-id="${remote!.id}"]`) as HTMLVideoElement;
         if (videoElement) {
           videoElement.muted = true; // Ensure it's muted
-          videoElement.play().catch(err => console.log("Autoplay failed, waiting for user interaction:", err));
 
-          // Set up an interval to ensure it starts playing once metadata is loaded
-          const playInterval = setInterval(() => {
+          const syncStream = () => {
             if (videoElement.paused && videoElement.readyState >= 1) {
               videoElement.play().catch(() => {});
             }
 
-            // If we have buffered data ahead and we're not playing, jump to it
             if (videoElement.buffered.length > 0) {
-              if (videoElement.currentTime < videoElement.buffered.start(0) ||
-                  (videoElement.buffered.length > 1 && videoElement.currentTime < videoElement.buffered.start(videoElement.buffered.length - 1))) {
-                 videoElement.currentTime = videoElement.buffered.start(videoElement.buffered.length - 1);
+              const lastIndex = videoElement.buffered.length - 1;
+              const bufferedStart = videoElement.buffered.start(lastIndex);
+              const bufferedEnd = videoElement.buffered.end(lastIndex);
+
+              // If we are significantly behind the last buffered range or not in any range
+              if (videoElement.currentTime < bufferedStart || videoElement.currentTime > bufferedEnd + 0.5) {
+                console.log(`[${remote!.id}] Syncing: currentTime=${videoElement.currentTime.toFixed(3)}, buffered=[${bufferedStart.toFixed(3)}, ${bufferedEnd.toFixed(3)}]. Jumping to ${bufferedStart.toFixed(3)}`);
+                videoElement.currentTime = bufferedStart;
               }
             }
+          };
 
-            if (!videoElement.paused && videoElement.currentTime > 0) {
-              // Once we're moving, we can stop the interval if we're sure it's stable
-              // But maybe keep it for a bit or rely on the 10s fallback
-            }
-          }, 500);
+          videoElement.addEventListener('waiting', () => {
+            console.log(`[${remote!.id}] Video waiting... readyState=${videoElement.readyState}, currentTime=${videoElement.currentTime.toFixed(3)}`);
+            syncStream();
+          });
 
-          // Fallback to clear interval
-          setTimeout(() => clearInterval(playInterval), 10000);
+          videoElement.addEventListener('loadedmetadata', () => {
+            videoElement.play().catch(() => {});
+          });
+
+          // Persistent interval for synchronization
+          const playInterval = setInterval(syncStream, 1000);
+
+          remote.syncInterval = playInterval;
         }
       }, 500);
     }
@@ -148,6 +157,11 @@ export class App implements AfterViewInit, OnDestroy {
     if (this.mediaRecorder) {
       this.mediaRecorder.stop();
     }
+    this.remoteStreams.forEach(remote => {
+      if (remote.syncInterval) {
+        clearInterval(remote.syncInterval);
+      }
+    });
     this.wsService.close();
   }
 }
