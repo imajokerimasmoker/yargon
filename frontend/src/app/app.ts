@@ -128,7 +128,9 @@ export class App implements AfterViewInit, OnDestroy {
           // Persistent interval for synchronization
           const playInterval = setInterval(syncStream, 1000);
 
-          remote.syncInterval = playInterval;
+          if (remote) {
+            remote.syncInterval = playInterval;
+          }
         }
       }, 500);
     }
